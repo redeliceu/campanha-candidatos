@@ -86,7 +86,7 @@ export default function TalentBankForm() {
         
         formData.append("file", curriculo, fileName);
 
-        const uploadRes = await fetch(import.meta.env.VITE_API_URL + "/api/upload", {
+        const uploadRes = await fetch(import.meta.env.VITE_API_URL + "/upload", {
           method: "POST",
           body: formData,
         });
@@ -96,7 +96,7 @@ export default function TalentBankForm() {
         }
 
         const uploadData = await uploadRes.json();
-        curriculo_url = window.location.origin + uploadData.path;
+        curriculo_url = uploadData.path;
 
         const payload = {
           name: nome.trim() + " " + sobrenome.trim(),
@@ -113,12 +113,24 @@ export default function TalentBankForm() {
           cv_url: curriculo_url,
         }
 
-        await fetch(import.meta.env.VITE_API_URL + "/api/application", {
+        await fetch(import.meta.env.VITE_API_URL + "/application", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
+        }).catch(async (err) => {
+          // Se der erro ao enviar os dados, tenta deletar o arquivo enviado
+          if (uploadData && uploadData.fileName) {
+            await fetch(import.meta.env.VITE_API_URL + "/upload", {
+              method: "DELETE",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({fileName : uploadData.fileName}),
+            });
+          }
+          throw err; // Re-throw para ser capturado no catch externo
         });
         
       }
