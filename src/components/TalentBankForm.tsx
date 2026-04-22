@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 //import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Send, User, Phone, Mail, MapPin, Linkedin, Briefcase, FileText } from "lucide-react";
+import { Upload, Send, User, Phone, Mail, MapPin, Linkedin, Briefcase, FileText, AlertCircle } from "lucide-react";
 import bannerImage from "@/assets/banner-liceu.webp";
 
 const VAGAS = [
@@ -16,6 +18,8 @@ const VAGAS = [
   "Analista Financeiro Pleno",
   "Assistente Administrativo - Apoio a Diretoria",
   "Auxiliar de Coordenação Pedagógica",
+  "Auxiliar de limpeza",
+  "Estágio em Pedagogia",
   "Outro",
 ] as const;
 
@@ -25,6 +29,37 @@ const LOCALIDADES = [
   "Guarulhos, São Paulo",
   "Outro",
 ] as const;
+
+// Schema de validação com Zod
+const formSchema = z.object({
+  vaga: z.string().min(1, "Selecione uma vaga"),
+  vagaOutro: z.string().optional(),
+  nome: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
+  sobrenome: z.string().min(2, "Sobrenome deve ter pelo menos 2 caracteres"),
+  telefone: z.string().min(10, "Telefone deve ter pelo menos 10 dígitos"),
+  email: z.string().email("Email inválido"),
+  localidade: z.string().optional(),
+  localidadeOutro: z.string().optional(),
+  bairroZonaLeste: z.string().optional(),
+  linkedin: z.string().url("URL do LinkedIn inválida").optional().or(z.literal("")),
+  jaParticipou: z.string().min(1, "Indique se já participou de processo seletivo"),
+  possuiExperiencia: z.string().min(1, "Indique se possui experiência"),
+  pretensaoSalarial: z.string().min(1, "Informe sua pretensão salarial"),
+  disponibilidade: z.string().min(1, "Informe sua disponibilidade"),
+  curriculo: z
+  .any()
+  .refine((file) => file instanceof File, "O currículo é obrigatório")
+  .refine((file) => file?.size > 0, "O currículo é obrigatório")
+  .refine((file) => file?.size <= 10 * 1024 * 1024, "O currículo deve ter no máximo 10MB"),
+}).refine(
+  (data) => data.vaga !== "Outro" || (data.vagaOutro && data.vagaOutro.trim().length > 0),
+  {
+    message: "Especifique a vaga desejada",
+    path: ["vagaOutro"],
+  }
+);
+
+type FormData = z.infer<typeof formSchema>;
 
 export default function TalentBankForm() {
   const { toast } = useToast();
@@ -44,6 +79,17 @@ export default function TalentBankForm() {
   const [disponibilidade, setDisponibilidade] = useState("");
   const [curriculo, setCurriculo] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Limpar erros após 3 segundos com animação suave
+  useEffect(() => {
+    if (Object.keys(errors).length > 0) {
+      const timer = setTimeout(() => {
+        setErrors({});
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [errors]);
 
   // Limpar bairroZonaLeste quando localidade mudar
   useEffect(() => {
@@ -55,22 +101,43 @@ export default function TalentBankForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!vaga || !nome || !sobrenome || !telefone || !email || !jaParticipou || !possuiExperiencia) {
-      toast({
-        title: "Campos obrigatórios",
-        description: "Por favor, preencha todos os campos obrigatórios (*)",
-        variant: "destructive",
-      });
-      return;
-    }
+    // Validar com Zod
+    try {
+      const formData: FormData = {
+        vaga,
+        vagaOutro,
+        nome,
+        sobrenome,
+        telefone,
+        email,
+        localidade,
+        localidadeOutro,
+        bairroZonaLeste,
+        linkedin,
+        jaParticipou,
+        possuiExperiencia,
+        pretensaoSalarial,
+        disponibilidade,
+        curriculo,
+      };
 
-    if (vaga === "Outro" && !vagaOutro.trim()) {
-      toast({
-        title: "Especifique a vaga",
-        description: "Por favor, informe qual vaga você deseja aplicar.",
-        variant: "destructive",
-      });
-      return;
+      formSchema.parse(formData);
+      setErrors({}); // Limpar erros anteriores
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        // Obter apenas o primeiro erro
+        const firstError = error.errors[0];
+        const path = firstError.path[0] as string;
+        setErrors({ [path]: firstError.message });
+
+        // Mostrar alerta com apenas o primeiro erro
+        toast({
+          title: "Campo inválido",
+          description: firstError.message,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -200,6 +267,17 @@ export default function TalentBankForm() {
                 Confira nossas vagas e cadastre-se<br />em nosso banco de talentos.
               </p>
             </div>
+
+            {/* Alert de erro */}
+            {/* {Object.keys(errors).length > 0 && (
+              <Alert variant="destructive" className="bg-red-200 fixed max-w-max top-10 right-8 animate-in slide-in-from-right-2 duration-300">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Campo inválido</AlertTitle>
+                <AlertDescription>
+                  {Object.values(errors)[0]}
+                </AlertDescription>
+              </Alert>
+            )} */}
 
             <form onSubmit={handleSubmit} className="space-y-8">
               {/* 1. Vaga */}
