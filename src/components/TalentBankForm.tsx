@@ -19,7 +19,7 @@ const VAGAS = [
   "Auxiliar de Coordenação Pedagógica",
   "Auxiliar de limpeza",
   "Estágio em Pedagogia",
-  "Outro",
+  "A disposição",
 ] as const;
 
 const LOCALIDADES = [
