@@ -19,6 +19,9 @@ const VAGAS = [
   "Auxiliar de Coordenação Pedagógica",
   "Auxiliar de limpeza",
   "Estágio em Pedagogia",
+  "Assistente de RH",
+  "Analista de RH",
+  //"Outro",
   "A disposição",
 ] as const;
 
