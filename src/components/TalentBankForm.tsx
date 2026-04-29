@@ -11,7 +11,6 @@ import { Upload, Send, User, Phone, Mail, MapPin, Linkedin, Briefcase, FileText,
 import bannerImage from "@/assets/banner-liceu.webp";
 
 const VAGAS = [
-  "Coordenador de Marketing Digital Senior",
   "Gerente de Unidade - Foco em Comercial",
   "Supervisor de Recrutamento e Seleção",
   "Diretor Pedagógico",
