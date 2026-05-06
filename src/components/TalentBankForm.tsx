@@ -13,7 +13,7 @@ import bannerImage from "@/assets/banner-liceu.webp";
 const VAGAS = [
   "Gerente de Unidade - Foco em Comercial",
   "Supervisor de Recrutamento e Seleção",
-  "Diretor Pedagógico",
+  //"Diretor Pedagógico",
   "Analista Financeiro Pleno",
   "Assistente Administrativo - Apoio a Diretoria",
   "Auxiliar de Coordenação Pedagógica",
@@ -21,6 +21,10 @@ const VAGAS = [
   "Estágio em Pedagogia",
   "Assistente de RH",
   "Analista de RH",
+  "Auxiliar Administrativo",
+  "Analista de Compras JR",
+  "Analista de Tráfego Pago",
+  "Diretor Administrativo",
   //"Outro",
   "A disposição",
 ] as const;
