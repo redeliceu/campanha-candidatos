@@ -62,7 +62,10 @@ const formSchema = z.object({
   linkedin: z.string().url("URL do LinkedIn inválida").optional().or(z.literal("")),
   jaParticipou: z.string().min(1, "Indique se já participou de processo seletivo"),
   possuiExperiencia: z.string().min(1, "Indique se possui experiência"),
-  pretensaoSalarial: z.string().min(1, "Informe sua pretensão salarial"),
+  pretensaoSalarial: z.string().min(1, "Informe sua pretensão salarial").refine(
+    (value) => normalizeCurrency(value).length > 0,
+    "Informe sua pretensão salarial"
+  ),
   disponibilidade: z.string().min(1, "Informe sua disponibilidade"),
   curriculo: z
   .any()
@@ -88,6 +91,13 @@ const formatPhone = (value: string) => {
   if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
   if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
+
+const normalizeCurrency = (value: string) => value.replace(/\D/g, "");
+
+const formatCurrency = (value: string) => {
+  const digits = normalizeCurrency(value);
+  return digits.length > 0 ? `R$ ${digits}` : "";
 };
 
 export default function TalentBankForm() {
@@ -247,8 +257,12 @@ export default function TalentBankForm() {
           throw new Error("Erro ao enviar currículo");
         }
 
-        const uploadData = await uploadRes.json();
-        curriculo_url = uploadData.path;
+        const uploadData = (await uploadRes.json()) as {
+          path?: string;
+          fileName?: string;
+        };
+
+        curriculo_url = uploadData.path || null;
 
         const payload = {
           name: nome.trim() + " " + sobrenome.trim(),
@@ -261,10 +275,10 @@ export default function TalentBankForm() {
           linkedin_url: linkedin.trim(),
           has_previous_application: jaParticipou.trim() === "Sim" ? true : false,
           has_experience: possuiExperiencia.trim() === "Sim" ? true : false,
-          salary_intention: pretensaoSalarial.trim(),
+          salary_intention: normalizeCurrency(pretensaoSalarial),
           starts: disponibilidade.trim(),
           cv_url: curriculo_url,
-        }
+        };
 
         const applicationRes = await fetch(import.meta.env.VITE_API_URL + "/application", {
           method: "POST",
@@ -275,17 +289,24 @@ export default function TalentBankForm() {
         });
 
         if (!applicationRes.ok) {
-          if (uploadData && uploadData.fileName) {
+          const cleanupBody: Record<string, string> = {};
+          if (uploadData?.fileName) cleanupBody.fileName = uploadData.fileName;
+          if (uploadData?.path) cleanupBody.path = uploadData.path;
+
+          if (Object.keys(cleanupBody).length > 0) {
             await fetch(import.meta.env.VITE_API_URL + "/upload", {
               method: "DELETE",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileName: uploadData.fileName }),
+              body: JSON.stringify(cleanupBody),
+            }).catch(() => {
+              // Ignore cleanup errors, original submission error is more important.
             });
           }
+
           throw new Error("Erro ao enviar cadastro");
         }
 
-        trackEvent('Lead', {
+        trackEvent("Lead", {
           name: payload.name,
           email: payload.email,
           job_name: payload.job_name,
@@ -293,8 +314,7 @@ export default function TalentBankForm() {
         });
 
         // Redireciona para a tela de sucesso após tracking
-        navigate('/sucesso');
-        
+        navigate("/sucesso");
       }
 
       toast({
@@ -303,7 +323,7 @@ export default function TalentBankForm() {
       });
 
       // Reset form
-      setVaga(0); setVagaOutro(""); setNome(""); setSobrenome("");
+      setVaga(null); setVagaOutro(""); setNome(""); setSobrenome("");
       setTelefone(""); setEmail(""); setLocalidade(""); setLocalidadeOutro("");
       setBairroZonaLeste(""); setLinkedin(""); setJaParticipou("");
       setPossuiExperiencia(""); setPretensaoSalarial(""); setDisponibilidade("");
@@ -541,8 +561,8 @@ export default function TalentBankForm() {
                 <Input
                   type="text"
                   value={pretensaoSalarial}
-                  onChange={(e) => setPretensaoSalarial(e.target.value)}
-                  placeholder="Ex: R$ 5.000,00"
+                  onChange={(e) => setPretensaoSalarial(formatCurrency(e.target.value))}
+                  placeholder="R$ 5000"
                   className="bg-background"
                 />
               </FormSection>
