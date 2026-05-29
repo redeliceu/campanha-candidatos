@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,12 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Send, User, Phone, Mail, MapPin, Linkedin, Briefcase, FileText, AlertCircle } from "lucide-react";
 import bannerImage from "@/assets/banner-liceu.webp";
+
+interface Vacancy {
+  id: number;
+  label: string;
+  is_active: boolean;
+}
 
 const VAGAS = [
   "Gerente de Unidade - Foco em Comercial",
@@ -38,11 +45,16 @@ const LOCALIDADES = [
 
 // Schema de validação com Zod
 const formSchema = z.object({
-  vaga: z.string().min(1, "Selecione uma vaga"),
+  vaga: z.number({
+    required_error: "Selecione uma vaga",
+  }),
   vagaOutro: z.string().optional(),
   nome: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
   sobrenome: z.string().min(2, "Sobrenome deve ter pelo menos 2 caracteres"),
-  telefone: z.string().min(10, "Telefone deve ter pelo menos 10 dígitos"),
+  telefone: z
+    .string()
+    .min(10, "Telefone deve ter pelo menos 10 dígitos")
+    .refine((value) => value.replace(/\D/g, "").length >= 10, "Telefone deve ter pelo menos 10 dígitos"),
   email: z.string().email("Email inválido"),
   localidade: z.string().optional(),
   localidadeOutro: z.string().optional(),
@@ -57,19 +69,31 @@ const formSchema = z.object({
   .refine((file) => file instanceof File, "O currículo é obrigatório")
   .refine((file) => file?.size > 0, "O currículo é obrigatório")
   .refine((file) => file?.size <= 10 * 1024 * 1024, "O currículo deve ter no máximo 10MB"),
-}).refine(
+})/* .refine(
   (data) => data.vaga !== "Outro" || (data.vagaOutro && data.vagaOutro.trim().length > 0),
   {
     message: "Especifique a vaga desejada",
     path: ["vagaOutro"],
   }
 );
-
+ */
 type FormData = z.infer<typeof formSchema>;
+
+const normalizePhone = (value: string) => value.replace(/\D/g, "");
+
+const formatPhone = (value: string) => {
+  const digits = normalizePhone(value).slice(0, 11);
+  if (digits.length === 0) return "";
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
 
 export default function TalentBankForm() {
   const { toast } = useToast();
-  const [vaga, setVaga] = useState("");
+  const navigate = useNavigate();
+  const [vaga, setVaga] = useState<number | null>(null);
   const [vagaOutro, setVagaOutro] = useState("");
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");
@@ -86,6 +110,59 @@ export default function TalentBankForm() {
   const [curriculo, setCurriculo] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [vacancies, setVacancies] = useState<Vacancy[]>([]);
+
+  const trackEvent = (event: string, data: Record<string, unknown> = {}) => {
+    const fbq = (window as Window & { fbq?: (...args: unknown[]) => void }).fbq;
+    if (fbq) {
+      fbq('track', event, data);
+    }
+  };
+
+  useEffect(() => {
+    async function loadVacancies() {
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_API_URL}/vacancies`
+        );
+
+        if (!response.ok) {
+          throw new Error("Erro ao buscar vagas");
+        }
+
+        const res = await response.json();
+
+        const activeVacancies = res.data.filter(v => v.is_active === 1);
+
+        const priorityLabels = [
+          "Diretor Administrativo - Doremi",
+          "Coordenador(a) de Recrutamento e Seleção",
+          "Supervisor Pedagógico",
+        ];
+
+        const sorted = activeVacancies.sort((a, b) => {
+          const indexA = priorityLabels.indexOf(a.label);
+          const indexB = priorityLabels.indexOf(b.label);
+
+          if (indexA !== -1 && indexB !== -1) {
+            return indexA - indexB;
+          }
+
+          if (indexA !== -1) return -1;
+          if (indexB !== -1) return 1;
+
+          return 0;
+        });
+
+        setVacancies(sorted);
+
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    loadVacancies();
+  }, []);
 
   // Limpar erros após 3 segundos com animação suave
   useEffect(() => {
@@ -107,6 +184,8 @@ export default function TalentBankForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const telefoneRaw = normalizePhone(telefone);
+
     // Validar com Zod
     try {
       const formData: FormData = {
@@ -114,7 +193,7 @@ export default function TalentBankForm() {
         vagaOutro,
         nome,
         sobrenome,
-        telefone,
+        telefone: telefoneRaw,
         email,
         localidade,
         localidadeOutro,
@@ -173,8 +252,9 @@ export default function TalentBankForm() {
 
         const payload = {
           name: nome.trim() + " " + sobrenome.trim(),
-          job_name: vagaOutro ? vagaOutro.trim() : vaga,
-          number_phone: telefone.trim(),
+          job_name: vacancies.find(v => v.id === vaga)?.label || vagaOutro.trim() || "Não informado",
+          vacancy_id: vagaOutro ? vagaOutro.trim() : vaga,
+          number_phone: telefoneRaw,
           email: email.trim(),
           location: localidadeOutro ? localidadeOutro.trim() : localidade,
           neighborhood: bairroZonaLeste.trim() || null,
@@ -186,25 +266,34 @@ export default function TalentBankForm() {
           cv_url: curriculo_url,
         }
 
-        await fetch(import.meta.env.VITE_API_URL + "/application", {
+        const applicationRes = await fetch(import.meta.env.VITE_API_URL + "/application", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
-        }).catch(async (err) => {
-          // Se der erro ao enviar os dados, tenta deletar o arquivo enviado
+        });
+
+        if (!applicationRes.ok) {
           if (uploadData && uploadData.fileName) {
             await fetch(import.meta.env.VITE_API_URL + "/upload", {
               method: "DELETE",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({fileName : uploadData.fileName}),
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileName: uploadData.fileName }),
             });
           }
-          throw err; // Re-throw para ser capturado no catch externo
+          throw new Error("Erro ao enviar cadastro");
+        }
+
+        trackEvent('Lead', {
+          name: payload.name,
+          email: payload.email,
+          job_name: payload.job_name,
+          localidade: payload.location,
         });
+
+        // Redireciona para a tela de sucesso após tracking
+        navigate('/sucesso');
         
       }
 
@@ -214,7 +303,7 @@ export default function TalentBankForm() {
       });
 
       // Reset form
-      setVaga(""); setVagaOutro(""); setNome(""); setSobrenome("");
+      setVaga(0); setVagaOutro(""); setNome(""); setSobrenome("");
       setTelefone(""); setEmail(""); setLocalidade(""); setLocalidadeOutro("");
       setBairroZonaLeste(""); setLinkedin(""); setJaParticipou("");
       setPossuiExperiencia(""); setPretensaoSalarial(""); setDisponibilidade("");
@@ -288,22 +377,24 @@ export default function TalentBankForm() {
             <form onSubmit={handleSubmit} className="space-y-8">
               {/* 1. Vaga */}
               <FormSection number={1} label="Qual vaga você deseja aplicar?" required icon={<Briefcase className="w-4 h-4" />}>
-                <RadioGroup value={vaga} onValueChange={setVaga} className="space-y-2">
-                  {VAGAS.map((v) => (
+                <RadioGroup value={vaga?.toString() ?? ""} onValueChange={(value) => setVaga(parseInt(value))} className="space-y-2">
+                  
+
+                  {vacancies.map((vacancy) => (
                     <label
-                      key={v}
+                      key={vacancy.id}
                       className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                        vaga === v
+                        vaga === vacancy.id
                           ? "border-primary bg-accent"
                           : "border-border hover:border-primary/40 hover:bg-accent/50"
                       }`}
                     >
-                      <RadioGroupItem value={v} />
-                      <span className="text-sm font-medium text-foreground">{v}</span>
+                      <RadioGroupItem value={vacancy.id.toString()} />
+                      <span className="text-sm font-medium text-foreground">{vacancy.label}</span>
                     </label>
                   ))}
                 </RadioGroup>
-                {vaga === "Outro" && (
+                {/* {vaga === "Outro" && (
                   <div className="mt-3 animate-in slide-in-from-top-2 duration-200">
                     <Input
                       placeholder="Especifique a vaga desejada..."
@@ -312,7 +403,7 @@ export default function TalentBankForm() {
                       className="bg-background"
                     />
                   </div>
-                )}
+                )} */}
               </FormSection>
 
               {/* 2. Nome */}
@@ -338,7 +429,7 @@ export default function TalentBankForm() {
                   <Input
                     type="tel"
                     value={telefone}
-                    onChange={(e) => setTelefone(e.target.value)}
+                    onChange={(e) => setTelefone(formatPhone(e.target.value))}
                     placeholder="(11) 99999-0000"
                     className="bg-background"
                   />
