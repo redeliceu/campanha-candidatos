@@ -5,8 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-//import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Send, User, Phone, Mail, MapPin, Linkedin, Briefcase, FileText, AlertCircle } from "lucide-react";
 import bannerImage from "@/assets/banner-liceu.webp";
@@ -16,25 +14,6 @@ interface Vacancy {
   label: string;
   is_active: boolean;
 }
-
-const VAGAS = [
-  "Gerente de Unidade - Foco em Comercial",
-  "Supervisor de Recrutamento e Seleção",
-  //"Diretor Pedagógico",
-  "Analista Financeiro Pleno",
-  "Assistente Administrativo - Apoio a Diretoria",
-  "Auxiliar de Coordenação Pedagógica",
-  "Auxiliar de limpeza",
-  "Estágio em Pedagogia",
-  "Assistente de RH",
-  "Analista de RH",
-  "Auxiliar Administrativo",
-  "Analista de Compras JR",
-  "Analista de Tráfego Pago",
-  "Diretor Administrativo",
-  //"Outro",
-  "A disposição",
-] as const;
 
 const LOCALIDADES = [
   "Região do Alto Tietê",
@@ -165,9 +144,10 @@ export default function TalentBankForm() {
         const activeVacancies = res.data.filter(v => v.is_active === 1);
 
         const priorityLabels = [
-          "Diretor Administrativo - Doremi",
           "Coordenador(a) de Recrutamento e Seleção",
-          "Supervisor Pedagógico",
+          "Diretor Administrativo Escolar",
+          "Auxiliar Administrativo",
+          "Assistente Admistrativo",
         ];
 
         const sorted = activeVacancies.sort((a, b) => {
