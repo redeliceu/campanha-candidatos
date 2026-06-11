@@ -72,6 +72,16 @@ const formSchema = z.object({
   .refine((file) => file instanceof File, "O currículo é obrigatório")
   .refine((file) => file?.size > 0, "O currículo é obrigatório")
   .refine((file) => file?.size <= 10 * 1024 * 1024, "O currículo deve ter no máximo 10MB"),
+  utm_source: z.string().max(255).optional(),
+  utm_medium: z.string().max(255).optional(),
+  utm_campaign: z.string().max(255).optional(),
+  utm_term: z.string().max(255).optional(),
+  utm_content: z.string().max(255).optional(),
+  gclid: z.string().max(255).optional(),
+  fbclid: z.string().max(255).optional(),
+  msclkid: z.string().max(255).optional(),
+  referrer: z.string().optional(),
+  landing_page: z.string().optional(),
 })/* .refine(
   (data) => data.vaga !== "Outro" || (data.vagaOutro && data.vagaOutro.trim().length > 0),
   {
@@ -118,6 +128,16 @@ export default function TalentBankForm() {
   const [pretensaoSalarial, setPretensaoSalarial] = useState("");
   const [disponibilidade, setDisponibilidade] = useState("");
   const [curriculo, setCurriculo] = useState<File | null>(null);
+  const [utm_source, setUtmSource] = useState("");
+  const [utm_medium, setUtmMedium] = useState("");
+  const [utm_campaign, setUtmCampaign] = useState("");
+  const [utm_term, setUtmTerm] = useState("");
+  const [utm_content, setUtmContent] = useState("");
+  const [gclid, setGclid] = useState("");
+  const [fbclid, setFbclid] = useState("");
+  const [msclkid, setMsclkid] = useState("");
+  const [referrer, setReferrer] = useState("");
+  const [landing_page, setLandingPage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
@@ -191,6 +211,66 @@ export default function TalentBankForm() {
     }
   }, [localidade]);
 
+  useEffect(() => {
+    const utmKeys = [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "gclid",
+      "fbclid",
+      "msclkid",
+    ];
+
+    const params = new URLSearchParams(window.location.search);
+    const values: Record<string, string> = {};
+
+    utmKeys.forEach((key) => {
+      const val = params.get(key);
+      if (val) {
+        localStorage.setItem(key, val);
+        values[key] = val;
+      }
+    });
+
+    utmKeys.forEach((key) => {
+      const stored = values[key] || localStorage.getItem(key) || "";
+      if (!stored) {
+        return;
+      }
+      switch (key) {
+        case "utm_source":
+          setUtmSource(stored);
+          break;
+        case "utm_medium":
+          setUtmMedium(stored);
+          break;
+        case "utm_campaign":
+          setUtmCampaign(stored);
+          break;
+        case "utm_term":
+          setUtmTerm(stored);
+          break;
+        case "utm_content":
+          setUtmContent(stored);
+          break;
+        case "gclid":
+          setGclid(stored);
+          break;
+        case "fbclid":
+          setFbclid(stored);
+          break;
+        case "msclkid":
+          setMsclkid(stored);
+          break;
+      }
+    });
+
+    setReferrer(document.referrer || "");
+    setLandingPage(window.location.href.split(".br/")[0] + ".br/");
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -214,6 +294,16 @@ export default function TalentBankForm() {
         pretensaoSalarial,
         disponibilidade,
         curriculo,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        utm_term,
+        utm_content,
+        gclid,
+        fbclid,
+        msclkid,
+        referrer,
+        landing_page,
       };
 
       formSchema.parse(formData);
@@ -273,11 +363,21 @@ export default function TalentBankForm() {
           location: localidadeOutro ? localidadeOutro.trim() : localidade,
           neighborhood: bairroZonaLeste.trim() || null,
           linkedin_url: linkedin.trim(),
-          has_previous_application: jaParticipou.trim() === "Sim" ? true : false,
-          has_experience: possuiExperiencia.trim() === "Sim" ? true : false,
+          has_previous_application: jaParticipou.trim() === "Sim",
+          has_experience: possuiExperiencia.trim() === "Sim",
           salary_intention: normalizeCurrency(pretensaoSalarial),
           starts: disponibilidade.trim(),
           cv_url: curriculo_url,
+          utm_source: utm_source || null,
+          utm_medium: utm_medium || null,
+          utm_campaign: utm_campaign || null,
+          utm_term: utm_term || null,
+          utm_content: utm_content || null,
+          gclid: gclid || null,
+          fbclid: fbclid || null,
+          msclkid: msclkid || null,
+          referrer: referrer || null,
+          landing_page: landing_page || null,
         };
 
         const applicationRes = await fetch(import.meta.env.VITE_API_URL + "/application", {
