@@ -147,7 +147,7 @@ export default function TalentBankForm() {
           "Coordenador(a) de Recrutamento e Seleção",
           "Diretor Administrativo Escolar",
           "Auxiliar Administrativo",
-          "Assistente Admistrativo",
+          "Assistente Administrativo",
         ];
 
         const sorted = activeVacancies.sort((a, b) => {
