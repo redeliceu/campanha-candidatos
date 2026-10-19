@@ -1,26 +1,18 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Send, User, Phone, Mail, MapPin, Linkedin, Briefcase, FileText, AlertCircle } from "lucide-react";
-import bannerImage from "@/assets/banner-liceu.webp";
-
-interface Vacancy {
-  id: number;
-  label: string;
-  is_active: boolean;
-}
-
-const LOCALIDADES = [
-  "Região do Alto Tietê",
-  "Zona Leste de São Paulo",
-  "Guarulhos, São Paulo",
-  "Outro",
-] as const;
+import { ArrowLeft, Upload, Send } from "lucide-react";
+import SiteHeader from "@/components/SiteHeader";
+import { fetchVacancies, type Vacancy } from "@/lib/vacancies";
+import { lookupCep } from "@/lib/viaCep";
+import whiteLogo from "@/assets/rede-liceu-white-cropped.png";
+import { formatBRLCurrency, normalizeBRLCurrency } from "@/lib/currency";
 
 // Schema de validação com Zod
 const formSchema = z.object({
@@ -36,14 +28,13 @@ const formSchema = z.object({
     .refine((value) => value.replace(/\D/g, "").length >= 10, "Telefone deve ter pelo menos 10 dígitos"),
   email: z.string().email("Email inválido"),
   localidade: z.string().optional(),
-  localidadeOutro: z.string().optional(),
   bairroZonaLeste: z.string().optional(),
   linkedin: z.string().url("URL do LinkedIn inválida").optional().or(z.literal("")),
   jaParticipou: z.string().min(1, "Indique se já participou de processo seletivo"),
   possuiExperiencia: z.string().min(1, "Indique se possui experiência"),
-  pretensaoSalarial: z.string().min(1, "Informe sua pretensão salarial").refine(
-    (value) => normalizeCurrency(value).length > 0,
-    "Informe sua pretensão salarial"
+  pretensaoSalarial: z.string().optional().refine(
+    (value) => !value || normalizeBRLCurrency(value).length > 0,
+    "Informe uma pretensão salarial válida"
   ),
   disponibilidade: z.string().min(1, "Informe sua disponibilidade"),
   curriculo: z
@@ -61,17 +52,16 @@ const formSchema = z.object({
   msclkid: z.string().max(255).optional(),
   referrer: z.string().optional(),
   landing_page: z.string().optional(),
-})/* .refine(
-  (data) => data.vaga !== "Outro" || (data.vagaOutro && data.vagaOutro.trim().length > 0),
-  {
-    message: "Especifique a vaga desejada",
-    path: ["vagaOutro"],
-  }
-);
- */
+});
 type FormData = z.infer<typeof formSchema>;
 
 const normalizePhone = (value: string) => value.replace(/\D/g, "");
+const normalizeCep = (value: string) => value.replace(/\D/g, "").slice(0, 8);
+
+const formatCep = (value: string) => {
+  const digits = normalizeCep(value);
+  return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+};
 
 const formatPhone = (value: string) => {
   const digits = normalizePhone(value).slice(0, 11);
@@ -82,24 +72,25 @@ const formatPhone = (value: string) => {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
-const normalizeCurrency = (value: string) => value.replace(/\D/g, "");
-
-const formatCurrency = (value: string) => {
-  const digits = normalizeCurrency(value);
-  return digits.length > 0 ? `R$ ${digits}` : "";
-};
+const EMPTY_VACANCIES: Vacancy[] = [];
 
 export default function TalentBankForm() {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [vaga, setVaga] = useState<number | null>(null);
+  const { vacancyId } = useParams();
+  const [vaga, setVaga] = useState<number | null>(() => {
+    const parsed = Number(vacancyId);
+    return vacancyId && Number.isInteger(parsed) ? parsed : null;
+  });
   const [vagaOutro, setVagaOutro] = useState("");
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [email, setEmail] = useState("");
+  const [cep, setCep] = useState("");
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepMessage, setCepMessage] = useState("");
   const [localidade, setLocalidade] = useState("");
-  const [localidadeOutro, setLocalidadeOutro] = useState("");
   const [bairroZonaLeste, setBairroZonaLeste] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [jaParticipou, setJaParticipou] = useState("");
@@ -119,7 +110,17 @@ export default function TalentBankForm() {
   const [landing_page, setLandingPage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [vacancies, setVacancies] = useState<Vacancy[]>([]);
+  const vacanciesQuery = useQuery({
+    queryKey: ["vacancies"],
+    queryFn: fetchVacancies,
+    staleTime: 60_000,
+  });
+  const vacancies = vacanciesQuery.data ?? EMPTY_VACANCIES;
+  const selectedVacancy = vacancies.find((vacancy) => vacancy.id === vaga);
+  const selectedVacancyUnavailable = Boolean(vacancyId)
+    && !vacanciesQuery.isPending
+    && !vacanciesQuery.isError
+    && !vacancies.some((vacancy) => vacancy.id === Number(vacancyId));
 
   const trackEvent = (event: string, data: Record<string, unknown> = {}) => {
     const fbq = (window as Window & { fbq?: (...args: unknown[]) => void }).fbq;
@@ -129,50 +130,10 @@ export default function TalentBankForm() {
   };
 
   useEffect(() => {
-    async function loadVacancies() {
-      try {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/vacancies`
-        );
-
-        if (!response.ok) {
-          throw new Error("Erro ao buscar vagas");
-        }
-
-        const res = await response.json();
-
-        const activeVacancies = res.data.filter(v => v.is_active === 1);
-
-        const priorityLabels = [
-          "Coordenador(a) de Recrutamento e Seleção",
-          "Diretor Administrativo Escolar",
-          "Auxiliar Administrativo",
-          "Assistente Administrativo",
-        ];
-
-        const sorted = activeVacancies.sort((a, b) => {
-          const indexA = priorityLabels.indexOf(a.label);
-          const indexB = priorityLabels.indexOf(b.label);
-
-          if (indexA !== -1 && indexB !== -1) {
-            return indexA - indexB;
-          }
-
-          if (indexA !== -1) return -1;
-          if (indexB !== -1) return 1;
-
-          return 0;
-        });
-
-        setVacancies(sorted);
-
-      } catch (error) {
-        console.error(error);
-      }
-    }
-
-    loadVacancies();
-  }, []);
+    if (!vacancyId) return;
+    const requestedId = Number(vacancyId);
+    setVaga(vacancies.find((vacancy) => vacancy.id === requestedId)?.id ?? null);
+  }, [vacancyId, vacancies]);
 
   // Limpar erros após 3 segundos com animação suave
   useEffect(() => {
@@ -183,13 +144,6 @@ export default function TalentBankForm() {
       return () => clearTimeout(timer);
     }
   }, [errors]);
-
-  // Limpar bairroZonaLeste quando localidade mudar
-  useEffect(() => {
-    if (localidade !== "Zona Leste de São Paulo") {
-      setBairroZonaLeste("");
-    }
-  }, [localidade]);
 
   useEffect(() => {
     const utmKeys = [
@@ -251,6 +205,28 @@ export default function TalentBankForm() {
     setLandingPage(window.location.href.split(".br/")[0] + ".br/");
   }, []);
 
+  const handleCepLookup = async () => {
+    const cepDigits = normalizeCep(cep);
+    if (cepDigits.length !== 8) {
+      setCepMessage("Informe um CEP com 8 dígitos.");
+      return;
+    }
+
+    setCepLoading(true);
+    setCepMessage("");
+    try {
+      const address = await lookupCep(cepDigits);
+      setLocalidade(address.city);
+      setBairroZonaLeste(address.neighborhood);
+      setCepMessage("Cidade e bairro preenchidos pelo CEP.");
+    } catch (error) {
+      console.error("Não foi possível consultar o CEP:", error);
+      setCepMessage(error instanceof Error ? error.message : "Não foi possível consultar o CEP.");
+    } finally {
+      setCepLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -266,7 +242,6 @@ export default function TalentBankForm() {
         telefone: telefoneRaw,
         email,
         localidade,
-        localidadeOutro,
         bairroZonaLeste,
         linkedin,
         jaParticipou,
@@ -340,12 +315,12 @@ export default function TalentBankForm() {
           vacancy_id: vagaOutro ? vagaOutro.trim() : vaga,
           number_phone: telefoneRaw,
           email: email.trim(),
-          location: localidadeOutro ? localidadeOutro.trim() : localidade,
+          location: localidade.trim(),
           neighborhood: bairroZonaLeste.trim() || null,
           linkedin_url: linkedin.trim(),
           has_previous_application: jaParticipou.trim() === "Sim",
           has_experience: possuiExperiencia.trim() === "Sim",
-          salary_intention: normalizeCurrency(pretensaoSalarial),
+          salary_intention: normalizeBRLCurrency(pretensaoSalarial) || null,
           starts: disponibilidade.trim(),
           cv_url: curriculo_url,
           utm_source: utm_source || null,
@@ -404,7 +379,7 @@ export default function TalentBankForm() {
 
       // Reset form
       setVaga(null); setVagaOutro(""); setNome(""); setSobrenome("");
-      setTelefone(""); setEmail(""); setLocalidade(""); setLocalidadeOutro("");
+      setTelefone(""); setEmail(""); setCep(""); setCepMessage(""); setLocalidade("");
       setBairroZonaLeste(""); setLinkedin(""); setJaParticipou("");
       setPossuiExperiencia(""); setPretensaoSalarial(""); setDisponibilidade("");
       setCurriculo(null);
@@ -436,78 +411,65 @@ export default function TalentBankForm() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto">
-        {/* Banner */}
-        <div className="w-full overflow-hidden rounded-b-2xl shadow-lg">
-          <img
-            src={bannerImage}
-            alt="Rede Liceu - Faça parte desta rede"
-            className="w-full h-auto object-cover"
-          />
-        </div>
+    <>
+      <SiteHeader />
+      {vacancyId && (
+        <section className="band">
+          <div className="w">
+            <Link className="back" to={`/vagas/${vacancyId}`}><ArrowLeft size={16} /> Voltar à vaga</Link>
+            <h1>Quase lá. Conte um pouco <em>sobre você</em>.</h1>
+          </div>
+        </section>
+      )}
+      {!vacancyId && (
+        <section className="band">
+          <div className="w">
+            <Link className="back" to="/"><ArrowLeft size={16} /> Voltar às vagas</Link>
+            <h1>Quase lá. Conte um pouco <em>sobre você</em>.</h1>
+          </div>
+        </section>
+      )}
+      <main className="fw">
+        {selectedVacancy && (
+          <div className="sel">
+            <div><small>Vaga selecionada</small><strong>{selectedVacancy.label}</strong></div>
+          </div>
+        )}
 
-        {/* Form Card */}
-        <div className="px-4 sm:px-6 -mt-4 relative z-10 pb-12">
-          <div className="bg-card rounded-2xl shadow-xl border border-border p-6 sm:p-8">
-            {/* Header */}
-            <div className="text-center mb-8">
-              <h1 className="text-lg sm:text-2xl font-extrabold text-primary mb-3 text-center leading-tight">
-                Venha crescer na carreira<br />e trabalhar perto de casa.
-              </h1>
-              <p className="text-muted-foreground text-sm leading-relaxed text-left">
-                Somos o grupo educacional que mais cresce na região do Alto Tietê, com escolas de educação básica e ensino profissionalizante nas cidades de Arujá, Itaquaquecetuba, Mogi das Cruzes e Suzano. Nosso crescimento produz constantes oportunidades de carreira e geração de valor para a sociedade. Se você é apaixonado por crescimento, e acredita que é possível transformar a vida das pessoas através da educação, venha com a gente.
-              </p>
-              <p className="text-base sm:text-xl font-extrabold text-primary mt-3 text-center leading-tight">
-                Confira nossas vagas e cadastre-se<br />em nosso banco de talentos.
-              </p>
-            </div>
+        {vacanciesQuery.isError && (
+          <div className="vacancy-error" role="alert">
+            <h3>Não foi possível carregar as vagas.</h3>
+            <p>{vacanciesQuery.error.message}</p>
+          </div>
+        )}
+        {selectedVacancyUnavailable && (
+          <div className="vacancy-error" role="alert">
+            Esta vaga não está mais aberta ou não foi encontrada. <Link className="font-semibold underline" to="/">Voltar às vagas</Link>
+          </div>
+        )}
 
-            {/* Alert de erro */}
-            {/* {Object.keys(errors).length > 0 && (
-              <Alert variant="destructive" className="bg-red-200 fixed max-w-max top-10 right-8 animate-in slide-in-from-right-2 duration-300">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Campo inválido</AlertTitle>
-                <AlertDescription>
-                  {Object.values(errors)[0]}
-                </AlertDescription>
-              </Alert>
-            )} */}
-
-            <form onSubmit={handleSubmit} className="space-y-8">
-              {/* 1. Vaga */}
-              <FormSection number={1} label="Qual vaga você deseja aplicar?" required icon={<Briefcase className="w-4 h-4" />}>
-                <RadioGroup value={vaga?.toString() ?? ""} onValueChange={(value) => setVaga(parseInt(value))} className="space-y-2">
-                  
-
-                  {vacancies.map((vacancy) => (
-                    <label
-                      key={vacancy.id}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                        vaga === vacancy.id
-                          ? "border-primary bg-accent"
-                          : "border-border hover:border-primary/40 hover:bg-accent/50"
-                      }`}
-                    >
-                      <RadioGroupItem value={vacancy.id.toString()} />
-                      <span className="text-sm font-medium text-foreground">{vacancy.label}</span>
-                    </label>
-                  ))}
-                </RadioGroup>
-                {/* {vaga === "Outro" && (
-                  <div className="mt-3 animate-in slide-in-from-top-2 duration-200">
-                    <Input
-                      placeholder="Especifique a vaga desejada..."
-                      value={vagaOutro}
-                      onChange={(e) => setVagaOutro(e.target.value)}
-                      className="bg-background"
-                    />
+            <form onSubmit={handleSubmit}>
+              {!vacancyId && (
+                <section className="grp">
+                  <h3><small>VAGA</small>Qual vaga você deseja aplicar?</h3>
+                  <div className="f">
+                    <RadioGroup value={vaga?.toString() ?? ""} onValueChange={(value) => setVaga(parseInt(value))}>
+                      {vacanciesQuery.isPending && <p>Carregando vagas...</p>}
+                      {!vacanciesQuery.isPending && !vacanciesQuery.isError && vacancies.length === 0 && <p>Não há vagas abertas no momento.</p>}
+                      {vacancies.map((vacancy) => (
+                        <label className="opt" key={vacancy.id}>
+                          <RadioGroupItem value={vacancy.id.toString()} />
+                          {vacancy.label}
+                        </label>
+                      ))}
+                    </RadioGroup>
                   </div>
-                )} */}
-              </FormSection>
-
+                </section>
+              )}
+              <section className="grp">
+                <h3><small>PASSO 1</small>Dados pessoais</h3>
               {/* 2. Nome */}
-              <FormSection number={2} label="Nome completo" required icon={<User className="w-4 h-4" />}>
+              <FormSection label="Nome completo" required>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">Nome</Label>
@@ -521,8 +483,8 @@ export default function TalentBankForm() {
               </FormSection>
 
               {/* 3. Telefone */}
-              <FormSection number={3} label="Número de telefone" required icon={<Phone className="w-4 h-4" />}>
-                <div className="flex items-center gap-2">
+              <FormSection label="Número de telefone" required>
+                <div className="ph">
                   <span className="flex items-center gap-1.5 px-3 py-2 bg-muted rounded-lg text-sm font-medium text-foreground border border-border shrink-0">
                     🇧🇷 +55
                   </span>
@@ -537,7 +499,7 @@ export default function TalentBankForm() {
               </FormSection>
 
               {/* 4. Email */}
-              <FormSection number={4} label="Endereço de email" required icon={<Mail className="w-4 h-4" />}>
+              <FormSection label="Endereço de email" required>
                 <Input
                   type="email"
                   value={email}
@@ -547,48 +509,48 @@ export default function TalentBankForm() {
                 />
               </FormSection>
 
-              {/* 5. Localidade */}
-              <FormSection number={5} label="Localidade" icon={<MapPin className="w-4 h-4" />}>
-                <RadioGroup value={localidade} onValueChange={setLocalidade} className="space-y-2">
-                  {LOCALIDADES.map((loc) => (
-                    <div key={loc} className="space-y-0">
-                      <label
-                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                          localidade === loc
-                            ? "border-primary bg-accent"
-                            : "border-border hover:border-primary/40 hover:bg-accent/50"
-                        }`}
-                      >
-                        <RadioGroupItem value={loc} />
-                        <span className="text-sm font-medium text-foreground">{loc}</span>
-                      </label>
-                      {loc === "Zona Leste de São Paulo" && localidade === "Zona Leste de São Paulo" && (
-                        <div className="mt-2 ml-8 animate-in slide-in-from-top-2 duration-200">
-                          <Input
-                            placeholder="Informe seu bairro..."
-                            value={bairroZonaLeste}
-                            onChange={(e) => setBairroZonaLeste(e.target.value)}
-                            className="bg-background"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </RadioGroup>
-                {localidade === "Outro" && (
-                  <div className="mt-3 animate-in slide-in-from-top-2 duration-200">
-                    <Input
-                      placeholder="Informe sua localidade..."
-                      value={localidadeOutro}
-                      onChange={(e) => setLocalidadeOutro(e.target.value)}
-                      className="bg-background"
-                    />
-                  </div>
-                )}
+              {/* 5. CEP e localidade */}
+              <FormSection label="Localidade (CEP)">
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <Input
+                    aria-label="CEP"
+                    autoComplete="postal-code"
+                    inputMode="numeric"
+                    maxLength={9}
+                    onChange={(event) => {
+                      setCep(formatCep(event.target.value));
+                      setLocalidade("");
+                      setBairroZonaLeste("");
+                      setCepMessage("");
+                    }}
+                    placeholder="00000-000"
+                    value={cep}
+                  />
+                  <Button disabled={cepLoading || normalizeCep(cep).length !== 8} onClick={() => void handleCepLookup()} type="button" variant="outline">
+                    {cepLoading ? "Consultando..." : "Buscar CEP"}
+                  </Button>
+                </div>
+                {cepMessage && <p aria-live="polite" className="text-sm text-muted-foreground">{cepMessage}</p>}
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    aria-label="Cidade"
+                    autoComplete="address-level2"
+                    onChange={(event) => setLocalidade(event.target.value)}
+                    placeholder="Cidade"
+                    value={localidade}
+                  />
+                  <Input
+                    aria-label="Bairro"
+                    autoComplete="address-level3"
+                    onChange={(event) => setBairroZonaLeste(event.target.value)}
+                    placeholder="Bairro"
+                    value={bairroZonaLeste}
+                  />
+                </div>
               </FormSection>
 
               {/* 6. LinkedIn */}
-              <FormSection number={6} label="Página do LinkedIn" icon={<Linkedin className="w-4 h-4" />}>
+              <FormSection label="Página do LinkedIn">
                 <Input
                   type="url"
                   value={linkedin}
@@ -597,18 +559,17 @@ export default function TalentBankForm() {
                   className="bg-background"
                 />
               </FormSection>
+              </section>
 
+              <section className="grp">
+                <h3><small>PASSO 2</small>Perfil profissional</h3>
               {/* 7. Já participou */}
-              <FormSection number={7} label="Já participou de algum processo seletivo conosco?" required icon={<Briefcase className="w-4 h-4" />}>
+              <FormSection label="Já participou de algum processo seletivo conosco?" required>
                 <RadioGroup value={jaParticipou} onValueChange={setJaParticipou} className="flex gap-3">
                   {["Sim", "Não"].map((opt) => (
                     <label
                       key={opt}
-                      className={`flex items-center gap-2 px-5 py-3 rounded-lg border cursor-pointer transition-all flex-1 justify-center ${
-                        jaParticipou === opt
-                          ? "border-primary bg-accent"
-                          : "border-border hover:border-primary/40 hover:bg-accent/50"
-                      }`}
+                      className="opt"
                     >
                       <RadioGroupItem value={opt} />
                       <span className="text-sm font-medium text-foreground">{opt}</span>
@@ -618,16 +579,12 @@ export default function TalentBankForm() {
               </FormSection>
 
               {/* 8. Experiência */}
-              <FormSection number={8} label="Possui experiência para a vaga desejada?" required icon={<Briefcase className="w-4 h-4" />}>
+              <FormSection label="Possui experiência para a vaga desejada?" required>
                 <RadioGroup value={possuiExperiencia} onValueChange={setPossuiExperiencia} className="flex gap-3">
                   {["Sim", "Não"].map((opt) => (
                     <label
                       key={opt}
-                      className={`flex items-center gap-2 px-5 py-3 rounded-lg border cursor-pointer transition-all flex-1 justify-center ${
-                        possuiExperiencia === opt
-                          ? "border-primary bg-accent"
-                          : "border-border hover:border-primary/40 hover:bg-accent/50"
-                      }`}
+                      className="opt"
                     >
                       <RadioGroupItem value={opt} />
                       <span className="text-sm font-medium text-foreground">{opt}</span>
@@ -637,27 +594,24 @@ export default function TalentBankForm() {
               </FormSection>
 
               {/* 9. Pretensão Salarial (MELHORIA) */}
-              <FormSection number={9} label="Pretensão salarial" icon={<FileText className="w-4 h-4" />}>
+              <FormSection label="Pretensão salarial">
                 <Input
+                  inputMode="decimal"
                   type="text"
                   value={pretensaoSalarial}
-                  onChange={(e) => setPretensaoSalarial(formatCurrency(e.target.value))}
-                  placeholder="R$ 5000"
+                  onChange={(e) => setPretensaoSalarial(formatBRLCurrency(e.target.value))}
+                  placeholder="R$ 5.000,00"
                   className="bg-background"
                 />
               </FormSection>
 
               {/* 10. Disponibilidade (MELHORIA) */}
-              <FormSection number={10} label="Disponibilidade para início" icon={<FileText className="w-4 h-4" />}>
+              <FormSection label="Disponibilidade para início">
                 <RadioGroup value={disponibilidade} onValueChange={setDisponibilidade} className="space-y-2">
                   {["Imediata", "15 dias", "30 dias", "A combinar"].map((opt) => (
                     <label
                       key={opt}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                        disponibilidade === opt
-                          ? "border-primary bg-accent"
-                          : "border-border hover:border-primary/40 hover:bg-accent/50"
-                      }`}
+                      className="opt"
                     >
                       <RadioGroupItem value={opt} />
                       <span className="text-sm font-medium text-foreground">{opt}</span>
@@ -665,23 +619,23 @@ export default function TalentBankForm() {
                   ))}
                 </RadioGroup>
               </FormSection>
+              </section>
 
+              <section className="grp">
+                <h3><small>PASSO 3</small>Currículo</h3>
               {/* 11. Currículo (OBRIGATÓRIO - MELHORIA) */}
-              <FormSection number={11} label="Anexe seu currículo" icon={<Upload className="w-4 h-4" />}>
+              <div className="f">
+                <Label className="block">Anexe seu currículo <i>*</i></Label>
                 <label
-                  className={`flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
-                    curriculo
-                      ? "border-primary bg-accent"
-                      : "border-border hover:border-primary/40 hover:bg-accent/30"
-                  }`}
+                  className="drop"
                 >
-                  <Upload className="w-8 h-8 text-muted-foreground" />
+                  <Upload aria-hidden="true" className="mx-auto mb-2 h-8 w-8" />
                   {curriculo ? (
-                    <span className="text-sm font-medium text-primary">{curriculo.name}</span>
+                    <strong>{curriculo.name}</strong>
                   ) : (
                     <>
-                      <span className="text-sm font-medium text-foreground">Clique para selecionar</span>
-                      <span className="text-xs text-muted-foreground">PDF, DOC ou DOCX (máx. 10MB)</span>
+                      <strong>Clique para selecionar</strong>
+                      <small>PDF, DOC ou DOCX (máx. 10MB)</small>
                     </>
                   )}
                   <input
@@ -691,14 +645,15 @@ export default function TalentBankForm() {
                     className="hidden"
                   />
                 </label>
-              </FormSection>
+              </div>
+              </section>
 
               {/* Submit */}
               <Button
                 type="submit"
                 size="lg"
-                disabled={submitting}
-                className="w-full text-base font-bold py-6 rounded-xl shadow-lg transition-all"
+                disabled={submitting || vacanciesQuery.isPending || vacanciesQuery.isError || vacancies.length === 0 || selectedVacancyUnavailable}
+                className="form-submit"
               >
                 {submitting ? (
                   <span className="flex items-center gap-2">
@@ -708,43 +663,37 @@ export default function TalentBankForm() {
                 ) : (
                   <span className="flex items-center gap-2">
                     <Send className="w-4 h-4" />
-                    Enviar Cadastro
+                    Enviar candidatura <span className="arrow">→</span>
                   </span>
                 )}
               </Button>
             </form>
+      </main>
+      <footer className="site-footer">
+        <div className="w site-footer-inner">
+          <div>
+            <img alt="Rede Liceu" className="footer-logo" src={whiteLogo} />
+            <p>Educação Infantil, Fundamental, Médio e Profissionalizante.</p>
           </div>
+          <p>Educação que transforma.</p>
         </div>
-      </div>
-    </div>
+      </footer>
+    </>
   );
 }
 
 function FormSection({
-  number,
   label,
   required,
-  icon,
   children,
 }: {
-  number: number;
   label: string;
   required?: boolean;
-  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">
-          {number}
-        </span>
-        {icon && <span className="text-primary">{icon}</span>}
-        <span className="text-sm font-semibold text-foreground">
-          {label}
-          {required && <span className="text-destructive ml-1">*</span>}
-        </span>
-      </div>
+    <div className="f">
+      <Label>{label} {required && <i>*</i>}</Label>
       {children}
     </div>
   );

@@ -1,10 +1,12 @@
 import { Link } from "react-router-dom";
 import { CheckCircle } from "lucide-react";
+import navyLogo from "@/assets/logo-liceu-navy-cropped.png";
 
 const Sucesso = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="max-w-md w-full bg-card border border-border rounded-2xl shadow-lg p-6 sm:p-10 text-center">
+        <img alt="Rede Liceu" className="mx-auto mb-8 h-12 w-52 object-contain" src={navyLogo} />
         <div className="flex items-center justify-center mb-4">
           <CheckCircle className="w-14 h-14 text-green-500" />
         </div>
