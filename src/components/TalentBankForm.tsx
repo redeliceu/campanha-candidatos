@@ -18,29 +18,31 @@ import { formatBRLCurrency, normalizeBRLCurrency } from "@/lib/currency";
 const formSchema = z.object({
   vaga: z.number({
     required_error: "Selecione uma vaga",
+    invalid_type_error: "Selecione uma vaga",
   }),
   vagaOutro: z.string().optional(),
-  nome: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
-  sobrenome: z.string().min(2, "Sobrenome deve ter pelo menos 2 caracteres"),
+  nome: z.string().trim().min(2, "Informe seu nome completo (mínimo de 2 caracteres)"),
+  sobrenome: z.string().trim().min(2, "Informe seu sobrenome (mínimo de 2 caracteres)"),
   telefone: z
     .string()
-    .min(10, "Telefone deve ter pelo menos 10 dígitos")
-    .refine((value) => value.replace(/\D/g, "").length >= 10, "Telefone deve ter pelo menos 10 dígitos"),
-  email: z.string().email("Email inválido"),
-  localidade: z.string().optional(),
+    .min(10, "Informe um telefone com DDD e pelo menos 10 dígitos")
+    .refine((value) => value.replace(/\D/g, "").length >= 10, "Informe um telefone com DDD e pelo menos 10 dígitos"),
+  email: z.string().trim().email("Informe um endereço de e-mail válido, como nome@exemplo.com"),
+  localidade: z.string().trim().min(1, "Informe sua cidade."),
   bairroZonaLeste: z.string().optional(),
-  linkedin: z.string().url("URL do LinkedIn inválida").optional().or(z.literal("")),
-  jaParticipou: z.string().min(1, "Indique se já participou de processo seletivo"),
-  possuiExperiencia: z.string().min(1, "Indique se possui experiência"),
-  pretensaoSalarial: z.string().optional().refine(
-    (value) => !value || normalizeBRLCurrency(value).length > 0,
-    "Informe uma pretensão salarial válida"
-  ),
-  disponibilidade: z.string().min(1, "Informe sua disponibilidade"),
+  linkedin: z.string().trim().url("Informe uma URL válida para seu perfil do LinkedIn (inclua https://)").optional().or(z.literal("")),
+  jaParticipou: z.string().min(1, "Selecione Sim ou Não para informar se já participou de um processo seletivo."),
+  possuiExperiencia: z.string().min(1, "Selecione Sim ou Não para informar se possui experiência."),
+  pretensaoSalarial: z
+    .string()
+    .trim()
+    .min(1, "Informe sua pretensão salarial.")
+    .refine((value) => normalizeBRLCurrency(value).length > 0, "Informe um valor válido para sua pretensão salarial."),
+  disponibilidade: z.string().min(1, "Selecione sua disponibilidade para início."),
   curriculo: z
   .any()
-  .refine((file) => file instanceof File, "O currículo é obrigatório")
-  .refine((file) => file?.size > 0, "O currículo é obrigatório")
+  .refine((file) => file instanceof File, "Anexe seu currículo em PDF, DOC ou DOCX.")
+  .refine((file) => file?.size > 0, "O arquivo do currículo está vazio. Selecione outro arquivo.")
   .refine((file) => file?.size <= 10 * 1024 * 1024, "O currículo deve ter no máximo 10MB"),
   utm_source: z.string().max(255).optional(),
   utm_medium: z.string().max(255).optional(),
@@ -135,16 +137,6 @@ export default function TalentBankForm() {
     setVaga(vacancies.find((vacancy) => vacancy.id === requestedId)?.id ?? null);
   }, [vacancyId, vacancies]);
 
-  // Limpar erros após 3 segundos com animação suave
-  useEffect(() => {
-    if (Object.keys(errors).length > 0) {
-      const timer = setTimeout(() => {
-        setErrors({});
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [errors]);
-
   useEffect(() => {
     const utmKeys = [
       "utm_source",
@@ -232,53 +224,51 @@ export default function TalentBankForm() {
 
     const telefoneRaw = normalizePhone(telefone);
 
-    // Validar com Zod
-    try {
-      const formData: FormData = {
-        vaga,
-        vagaOutro,
-        nome,
-        sobrenome,
-        telefone: telefoneRaw,
-        email,
-        localidade,
-        bairroZonaLeste,
-        linkedin,
-        jaParticipou,
-        possuiExperiencia,
-        pretensaoSalarial,
-        disponibilidade,
-        curriculo,
-        utm_source,
-        utm_medium,
-        utm_campaign,
-        utm_term,
-        utm_content,
-        gclid,
-        fbclid,
-        msclkid,
-        referrer,
-        landing_page,
-      };
+    const formData: FormData = {
+      vaga,
+      vagaOutro,
+      nome,
+      sobrenome,
+      telefone: telefoneRaw,
+      email,
+      localidade,
+      bairroZonaLeste,
+      linkedin,
+      jaParticipou,
+      possuiExperiencia,
+      pretensaoSalarial,
+      disponibilidade,
+      curriculo,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      gclid,
+      fbclid,
+      msclkid,
+      referrer,
+      landing_page,
+    };
 
-      formSchema.parse(formData);
-      setErrors({}); // Limpar erros anteriores
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        // Obter apenas o primeiro erro
-        const firstError = error.errors[0];
-        const path = firstError.path[0] as string;
-        setErrors({ [path]: firstError.message });
-
-        // Mostrar alerta com apenas o primeiro erro
-        toast({
-          title: "Campo inválido",
-          description: firstError.message,
-          variant: "destructive",
-        });
-        return;
-      }
+    const validation = formSchema.safeParse(formData);
+    if (!validation.success) {
+      const validationErrors: Record<string, string> = {};
+      validation.error.issues.forEach((issue) => {
+        const field = String(issue.path[0] ?? "form");
+        if (!validationErrors[field]) {
+          validationErrors[field] = issue.message;
+        }
+      });
+      setErrors(validationErrors);
+      toast({
+        title: "Revise os campos do formulário",
+        description: `Encontramos ${Object.keys(validationErrors).length} campo(s) que precisam de atenção. Consulte as mensagens destacadas no formulário.`,
+        variant: "destructive",
+      });
+      return;
     }
+    setErrors({});
 
     setSubmitting(true);
 
@@ -407,7 +397,21 @@ export default function TalentBankForm() {
         return;
       }
       setCurriculo(file);
+      setErrors((current) => {
+        const next = { ...current };
+        delete next.curriculo;
+        return next;
+      });
     }
+  };
+
+  const clearError = (field: string) => {
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
   };
 
   return (
@@ -448,12 +452,15 @@ export default function TalentBankForm() {
           </div>
         )}
 
-            <form onSubmit={handleSubmit}>
+            <form noValidate onSubmit={handleSubmit}>
               {!vacancyId && (
                 <section className="grp">
                   <h3><small>VAGA</small>Qual vaga você deseja aplicar?</h3>
                   <div className="f">
-                    <RadioGroup value={vaga?.toString() ?? ""} onValueChange={(value) => setVaga(parseInt(value))}>
+                    <RadioGroup value={vaga?.toString() ?? ""} onValueChange={(value) => {
+                      setVaga(parseInt(value));
+                      clearError("vaga");
+                    }}>
                       {vacanciesQuery.isPending && <p>Carregando vagas...</p>}
                       {!vacanciesQuery.isPending && !vacanciesQuery.isError && vacancies.length === 0 && <p>Não há vagas abertas no momento.</p>}
                       {vacancies.map((vacancy) => (
@@ -463,6 +470,7 @@ export default function TalentBankForm() {
                         </label>
                       ))}
                     </RadioGroup>
+                    {errors.vaga && <FieldError>{errors.vaga}</FieldError>}
                   </div>
                 </section>
               )}
@@ -473,11 +481,19 @@ export default function TalentBankForm() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">Nome</Label>
-                    <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Seu nome" className="bg-background" />
+                    <Input aria-invalid={Boolean(errors.nome)} value={nome} onChange={(e) => {
+                      setNome(e.target.value);
+                      clearError("nome");
+                    }} placeholder="Seu nome" className="bg-background" />
+                    {errors.nome && <FieldError>{errors.nome}</FieldError>}
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1 block">Sobrenome</Label>
-                    <Input value={sobrenome} onChange={(e) => setSobrenome(e.target.value)} placeholder="Seu sobrenome" className="bg-background" />
+                    <Input aria-invalid={Boolean(errors.sobrenome)} value={sobrenome} onChange={(e) => {
+                      setSobrenome(e.target.value);
+                      clearError("sobrenome");
+                    }} placeholder="Seu sobrenome" className="bg-background" />
+                    {errors.sobrenome && <FieldError>{errors.sobrenome}</FieldError>}
                   </div>
                 </div>
               </FormSection>
@@ -491,11 +507,16 @@ export default function TalentBankForm() {
                   <Input
                     type="tel"
                     value={telefone}
-                    onChange={(e) => setTelefone(formatPhone(e.target.value))}
+                    aria-invalid={Boolean(errors.telefone)}
+                    onChange={(e) => {
+                      setTelefone(formatPhone(e.target.value));
+                      clearError("telefone");
+                    }}
                     placeholder="(11) 99999-0000"
                     className="bg-background"
                   />
                 </div>
+                {errors.telefone && <FieldError>{errors.telefone}</FieldError>}
               </FormSection>
 
               {/* 4. Email */}
@@ -503,14 +524,19 @@ export default function TalentBankForm() {
                 <Input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={Boolean(errors.email)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    clearError("email");
+                  }}
                   placeholder="seu@email.com"
                   className="bg-background"
                 />
+                {errors.email && <FieldError>{errors.email}</FieldError>}
               </FormSection>
 
               {/* 5. CEP e localidade */}
-              <FormSection label="Localidade (CEP)">
+              <FormSection label="Localidade (CEP)" required error={errors.localidade}>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Input
                     aria-label="CEP"
@@ -522,6 +548,7 @@ export default function TalentBankForm() {
                       setLocalidade("");
                       setBairroZonaLeste("");
                       setCepMessage("");
+                      clearError("localidade");
                     }}
                     placeholder="00000-000"
                     value={cep}
@@ -534,8 +561,13 @@ export default function TalentBankForm() {
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input
                     aria-label="Cidade"
+                    aria-invalid={Boolean(errors.localidade)}
                     autoComplete="address-level2"
-                    onChange={(event) => setLocalidade(event.target.value)}
+                    required
+                    onChange={(event) => {
+                      setLocalidade(event.target.value);
+                      clearError("localidade");
+                    }}
                     placeholder="Cidade"
                     value={localidade}
                   />
@@ -550,11 +582,15 @@ export default function TalentBankForm() {
               </FormSection>
 
               {/* 6. LinkedIn */}
-              <FormSection label="Página do LinkedIn">
+              <FormSection label="Página do LinkedIn" error={errors.linkedin}>
                 <Input
                   type="url"
                   value={linkedin}
-                  onChange={(e) => setLinkedin(e.target.value)}
+                  aria-invalid={Boolean(errors.linkedin)}
+                  onChange={(e) => {
+                    setLinkedin(e.target.value);
+                    clearError("linkedin");
+                  }}
                   placeholder="https://linkedin.com/in/seu-perfil"
                   className="bg-background"
                 />
@@ -564,8 +600,11 @@ export default function TalentBankForm() {
               <section className="grp">
                 <h3><small>PASSO 2</small>Perfil profissional</h3>
               {/* 7. Já participou */}
-              <FormSection label="Já participou de algum processo seletivo conosco?" required>
-                <RadioGroup value={jaParticipou} onValueChange={setJaParticipou} className="flex gap-3">
+              <FormSection label="Já participou de algum processo seletivo conosco?" required error={errors.jaParticipou}>
+                <RadioGroup value={jaParticipou} onValueChange={(value) => {
+                  setJaParticipou(value);
+                  clearError("jaParticipou");
+                }} className="flex gap-3">
                   {["Sim", "Não"].map((opt) => (
                     <label
                       key={opt}
@@ -579,8 +618,11 @@ export default function TalentBankForm() {
               </FormSection>
 
               {/* 8. Experiência */}
-              <FormSection label="Possui experiência para a vaga desejada?" required>
-                <RadioGroup value={possuiExperiencia} onValueChange={setPossuiExperiencia} className="flex gap-3">
+              <FormSection label="Possui experiência para a vaga desejada?" required error={errors.possuiExperiencia}>
+                <RadioGroup value={possuiExperiencia} onValueChange={(value) => {
+                  setPossuiExperiencia(value);
+                  clearError("possuiExperiencia");
+                }} className="flex gap-3">
                   {["Sim", "Não"].map((opt) => (
                     <label
                       key={opt}
@@ -594,20 +636,28 @@ export default function TalentBankForm() {
               </FormSection>
 
               {/* 9. Pretensão Salarial (MELHORIA) */}
-              <FormSection label="Pretensão salarial">
+              <FormSection label="Pretensão salarial" required error={errors.pretensaoSalarial}>
                 <Input
                   inputMode="decimal"
                   type="text"
                   value={pretensaoSalarial}
-                  onChange={(e) => setPretensaoSalarial(formatBRLCurrency(e.target.value))}
+                  aria-invalid={Boolean(errors.pretensaoSalarial)}
+                  required
+                  onChange={(e) => {
+                    setPretensaoSalarial(formatBRLCurrency(e.target.value));
+                    clearError("pretensaoSalarial");
+                  }}
                   placeholder="R$ 5.000,00"
                   className="bg-background"
                 />
               </FormSection>
 
               {/* 10. Disponibilidade (MELHORIA) */}
-              <FormSection label="Disponibilidade para início">
-                <RadioGroup value={disponibilidade} onValueChange={setDisponibilidade} className="space-y-2">
+              <FormSection label="Disponibilidade para início" required error={errors.disponibilidade}>
+                <RadioGroup value={disponibilidade} onValueChange={(value) => {
+                  setDisponibilidade(value);
+                  clearError("disponibilidade");
+                }} className="space-y-2">
                   {["Imediata", "15 dias", "30 dias", "A combinar"].map((opt) => (
                     <label
                       key={opt}
@@ -643,8 +693,10 @@ export default function TalentBankForm() {
                     accept=".pdf,.doc,.docx"
                     onChange={handleFileChange}
                     className="hidden"
+                    aria-invalid={Boolean(errors.curriculo)}
                   />
                 </label>
+                {errors.curriculo && <FieldError>{errors.curriculo}</FieldError>}
               </div>
               </section>
 
@@ -685,16 +737,23 @@ export default function TalentBankForm() {
 function FormSection({
   label,
   required,
+  error,
   children,
 }: {
   label: string;
   required?: boolean;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="f">
       <Label>{label} {required && <i>*</i>}</Label>
       {children}
+      {error && <FieldError>{error}</FieldError>}
     </div>
   );
+}
+
+function FieldError({ children }: { children: React.ReactNode }) {
+  return <p className="mt-2 text-sm font-medium text-destructive" role="alert">{children}</p>;
 }
