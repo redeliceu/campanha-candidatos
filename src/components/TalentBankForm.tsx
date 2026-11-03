@@ -60,14 +60,14 @@ const formSchema = z.object({
   if (data.vaga === 51 && !["1", "2", "3", "4", "5", "6"].includes(data.talentCategory)) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Selecione uma categoria para o Banco de Talentos.",
+      message: "Selecione uma área para o Banco de Talentos.",
       path: ["talentCategory"],
     });
   }
 });
 type FormData = z.infer<typeof formSchema>;
 
-const TALENT_CATEGORIES = [
+const TALENT_AREAS = [
   { id: "1", label: "Tecnologia" },
   { id: "2", label: "Comercial" },
   { id: "3", label: "Marketing" },
@@ -502,8 +502,8 @@ export default function TalentBankForm() {
               )}
               {vaga === 51 && (
                 <section className="grp">
-                  <h3><small>BANCO DE TALENTOS</small>Qual categoria você deseja?</h3>
-                  <FormSection label="Categoria" required error={errors.talentCategory}>
+                  <h3><small>BANCO DE TALENTOS</small>Qual área você deseja?</h3>
+                  <FormSection label="Área" required error={errors.talentCategory}>
                     <Select
                       onValueChange={(value) => {
                         setTalentCategory(value);
@@ -512,11 +512,11 @@ export default function TalentBankForm() {
                       value={talentCategory}
                     >
                       <SelectTrigger aria-invalid={Boolean(errors.talentCategory)}>
-                        <SelectValue placeholder="Selecione uma categoria" />
+                        <SelectValue placeholder="Selecione uma área" />
                       </SelectTrigger>
                       <SelectContent>
-                        {TALENT_CATEGORIES.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>{category.label}</SelectItem>
+                        {TALENT_AREAS.map((area) => (
+                          <SelectItem key={area.id} value={area.id}>{area.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
