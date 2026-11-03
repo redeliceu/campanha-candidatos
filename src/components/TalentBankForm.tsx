@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Upload, Send } from "lucide-react";
 import SiteHeader from "@/components/SiteHeader";
@@ -54,8 +55,26 @@ const formSchema = z.object({
   msclkid: z.string().max(255).optional(),
   referrer: z.string().optional(),
   landing_page: z.string().optional(),
+  talentCategory: z.string(),
+}).superRefine((data, context) => {
+  if (data.vaga === 51 && !["1", "2", "3", "4", "5", "6"].includes(data.talentCategory)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Selecione uma categoria para o Banco de Talentos.",
+      path: ["talentCategory"],
+    });
+  }
 });
 type FormData = z.infer<typeof formSchema>;
+
+const TALENT_CATEGORIES = [
+  { id: "1", label: "Tecnologia" },
+  { id: "2", label: "Comercial" },
+  { id: "3", label: "Marketing" },
+  { id: "4", label: "Pedagógico" },
+  { id: "5", label: "Administrativo" },
+  { id: "6", label: "Facilities" },
+];
 
 const normalizePhone = (value: string) => value.replace(/\D/g, "");
 const normalizeCep = (value: string) => value.replace(/\D/g, "").slice(0, 8);
@@ -84,6 +103,7 @@ export default function TalentBankForm() {
     const parsed = Number(vacancyId);
     return vacancyId && Number.isInteger(parsed) ? parsed : null;
   });
+  const [talentCategory, setTalentCategory] = useState("");
   const [vagaOutro, setVagaOutro] = useState("");
   const [nome, setNome] = useState("");
   const [sobrenome, setSobrenome] = useState("");
@@ -135,6 +155,7 @@ export default function TalentBankForm() {
     if (!vacancyId) return;
     const requestedId = Number(vacancyId);
     setVaga(vacancies.find((vacancy) => vacancy.id === requestedId)?.id ?? null);
+    setTalentCategory("");
   }, [vacancyId, vacancies]);
 
   useEffect(() => {
@@ -226,6 +247,7 @@ export default function TalentBankForm() {
 
     const formData: FormData = {
       vaga,
+      talentCategory,
       vagaOutro,
       nome,
       sobrenome,
@@ -303,6 +325,7 @@ export default function TalentBankForm() {
           name: nome.trim() + " " + sobrenome.trim(),
           job_name: vacancies.find(v => v.id === vaga)?.label || vagaOutro.trim() || "Não informado",
           vacancy_id: vagaOutro ? vagaOutro.trim() : vaga,
+          talent_category: vaga === 51 ? Number(talentCategory) : null,
           number_phone: telefoneRaw,
           email: email.trim(),
           location: localidade.trim(),
@@ -369,6 +392,7 @@ export default function TalentBankForm() {
 
       // Reset form
       setVaga(null); setVagaOutro(""); setNome(""); setSobrenome("");
+      setTalentCategory("");
       setTelefone(""); setEmail(""); setCep(""); setCepMessage(""); setLocalidade("");
       setBairroZonaLeste(""); setLinkedin(""); setJaParticipou("");
       setPossuiExperiencia(""); setPretensaoSalarial(""); setDisponibilidade("");
@@ -459,7 +483,9 @@ export default function TalentBankForm() {
                   <div className="f">
                     <RadioGroup value={vaga?.toString() ?? ""} onValueChange={(value) => {
                       setVaga(parseInt(value));
+                      setTalentCategory("");
                       clearError("vaga");
+                      clearError("talentCategory");
                     }}>
                       {vacanciesQuery.isPending && <p>Carregando vagas...</p>}
                       {!vacanciesQuery.isPending && !vacanciesQuery.isError && vacancies.length === 0 && <p>Não há vagas abertas no momento.</p>}
@@ -472,6 +498,29 @@ export default function TalentBankForm() {
                     </RadioGroup>
                     {errors.vaga && <FieldError>{errors.vaga}</FieldError>}
                   </div>
+                </section>
+              )}
+              {vaga === 51 && (
+                <section className="grp">
+                  <h3><small>BANCO DE TALENTOS</small>Qual categoria você deseja?</h3>
+                  <FormSection label="Categoria" required error={errors.talentCategory}>
+                    <Select
+                      onValueChange={(value) => {
+                        setTalentCategory(value);
+                        clearError("talentCategory");
+                      }}
+                      value={talentCategory}
+                    >
+                      <SelectTrigger aria-invalid={Boolean(errors.talentCategory)}>
+                        <SelectValue placeholder="Selecione uma categoria" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TALENT_CATEGORIES.map((category) => (
+                          <SelectItem key={category.id} value={category.id}>{category.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormSection>
                 </section>
               )}
               <section className="grp">
